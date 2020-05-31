@@ -39,6 +39,27 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true }).then(client => {
 
     // ---------------------- Database Operations ------------------------------------
     /*
+     * Get number of pages in images collection based on pageSize
+     *
+     * Query Parameters:
+     *  pageSize => size of querying page. Default 15, like the /api/image/db endpoint
+     */
+    app.get('/api/image/db/pages', (req, res) => {
+        images.countDocuments({}, (err, result) => {
+            if (err) {
+                return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+                    "msg": "Error: Internal Server Error - " + err
+                });
+            }
+
+
+            let pageSize = req.query.pageSize || 15;
+            let pages = Math.ceil(result / req.query.pageSize);
+            console.log("Mongo Get Pages - " + pages);
+            return res.status(HttpStatus.OK).json(pages);
+        });
+    });
+    /*
      * Gets an image, or many images, depending on what is being passed in.
      * If an id is passed in, just one with that ID will be returned.
      * If no id is passed in, then it will return many, defaulting pageSize to 15 and pageNum to 1
