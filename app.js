@@ -20,7 +20,7 @@ const mongoURL = `mongodb://${mongoUsername}:${mongoPassword}@${mongoHost}:${mon
 const app = express();
 MongoClient.connect(mongoURL, { useUnifiedTopology: true }).then(client => {
     console.log("Connected to Database");
-    const db = client.db("test-image-database");
+    const db = client.db("image-database");
     const images = db.collection("images");
     const tags = db.collection("tags");
 
