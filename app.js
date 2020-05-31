@@ -38,6 +38,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true }).then(client => {
     });
 
     // ---------------------- Database Operations ------------------------------------
+    
     /*
      * Get number of pages in images collection based on pageSize
      *
@@ -54,11 +55,12 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true }).then(client => {
 
 
             let pageSize = req.query.pageSize || 15;
-            let pages = Math.ceil(result / req.query.pageSize);
+            let pages = Math.ceil(result / pageSize);
             console.log("Mongo Get Pages - " + pages);
             return res.status(HttpStatus.OK).json(pages);
         });
     });
+    
     /*
      * Gets an image, or many images, depending on what is being passed in.
      * If an id is passed in, just one with that ID will be returned.
@@ -69,6 +71,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true }).then(client => {
      *
      *  pageSize => size of page
      *  pageNum => specific page number
+     *  search => a query string for searching titles or descriptions
      *
      * @return {JSON} sends a json array for many objects and just one object for a single id query
      */
@@ -96,23 +99,28 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true }).then(client => {
             let pageSize = parseInt(req.query.pageSize) || 15;
             let pageNum = parseInt(req.query.pageNum) || 1;
             let skipAmount = pageSize * (pageNum - 1);
-			images.find({}, {skip: skipAmount, limit: pageSize}, async (err, result) => {
-				if (err) {
-					console.error(err);
-					return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+            let search = req.query.search || ".*";
+			images.find(
+                {$or: [{title: {$regex: `${search}`, $options: "i"}}, {description: {$regex: `${search}`, $options: "i"}}]}, 
+                {skip: skipAmount, limit: pageSize}, 
+                async (err, result) => {
+                    if (err) {
+                        console.error(err);
+                        return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
                         "msg": "Error: Internal Server Error - " + err
-                    });
-				}
+                        });
+                    }
 				
-				if (result == null) {
-					return res.status(HttpStatus.NOT_FOUND).json({
-						"msg": "Error: Not Found"
-					})
-				}
+                    if (result == null) {
+                        return res.status(HttpStatus.NOT_FOUND).json({
+                            "msg": "Error: Not Found"
+                        });
+                    }
 				
-				console.log("Mongo Get All Images");
-				return res.status(HttpStatus.OK).json(await result.toArray());
-			});
+                    console.log("Mongo Get All Images");
+                    return res.status(HttpStatus.OK).json(await result.toArray());
+                }
+            );
 		}
     });
 
@@ -222,7 +230,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true }).then(client => {
         let busboy = new Busboy({
             headers: req.headers
         });
-        busboy.on('file', function(fieldname, file, filename, encoding, mimetype) {
+        busboy.on('file', function(fieldname, file, filename) {
             filePath += "." + filename.split(".")[1];
             file.on('data', function(data) {
                 process.stdout.write('Uploading File [' + filename + '] got ' + data.length + ' bytes\r');
@@ -250,6 +258,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true }).then(client => {
     });
 
     // ---------------------- Tags Operations ------------------------------------
+    
     /*
      * Gets all of the tags from the tags collection
      */
@@ -273,7 +282,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true }).then(client => {
      *  }
      */
     app.post('/api/tags', (req, res) => {
-        tags.insertOne(req.body, (err, result) => {
+        tags.insertOne(req.body, (err) => {
             if (err) {
                 return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
                     "msg": "Error: Internal Server Error - " + err
