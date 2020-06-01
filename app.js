@@ -8,7 +8,7 @@ const fs = require('fs');
 const Busboy = require('busboy');
 const cors = require('cors');
 const uuid = require('uuid');
-
+ 
 // Set up mongo
 const mongoUsername = process.env.MONGO_USERNAME;
 const mongoPassword = process.env.MONGO_PASSWORD;
@@ -40,25 +40,29 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true }).then(client => {
     // ---------------------- Database Operations ------------------------------------
     
     /*
-     * Get number of pages in images collection based on pageSize
+     * Get number of pages in images collection based on pageSize and search query
      *
      * Query Parameters:
      *  pageSize => size of querying page. Default 15, like the /api/image/db endpoint
+     *  search => search query
      */
     app.get('/api/image/db/pages', (req, res) => {
-        images.countDocuments({}, (err, result) => {
-            if (err) {
-                return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
-                    "msg": "Error: Internal Server Error - " + err
-                });
+        let search = req.query.search || ".*";
+        images.countDocuments(
+            {$or: [{title: {$regex: `${search}`, $options: "i"}}, {description: {$regex: `${search}`, $options: "i"}}]}, 
+            (err, result) => {
+                if (err) {
+                    return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+                        "msg": "Error: Internal Server Error - " + err
+                    });
+                }
+
+                let pageSize = req.query.pageSize || 15;
+                let pages = Math.ceil(result / pageSize);
+                console.log("Mongo Get Pages - " + pages);
+                return res.status(HttpStatus.OK).json(pages);
             }
-
-
-            let pageSize = req.query.pageSize || 15;
-            let pages = Math.ceil(result / pageSize);
-            console.log("Mongo Get Pages - " + pages);
-            return res.status(HttpStatus.OK).json(pages);
-        });
+        );
     });
     
     /*
