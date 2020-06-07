@@ -51,6 +51,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
         app.get("/api/image/db/pages", (req, res) => {
             let search = req.query.search || ".*";
             let tags = req.query.tags || [];
+			tags = Array.isArray(tags) ? tags : [tags];
             images.countDocuments(
                 {
                     tags: tags.length ? { $all: tags } : { $in: [/.*/] },
@@ -64,6 +65,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                         return res
                             .status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .json({
+								error: true,
                                 msg: "Error: Internal Server Error - " + err,
                             });
                     }
@@ -98,12 +100,14 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                         return res
                             .status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .json({
+								error: true,
                                 msg: "Error: Internal Server Error - " + err,
                             });
                     }
 
                     if (result == null) {
                         return res.status(HttpStatus.NOT_FOUND).json({
+							error: true,
                             msg: "Error: Not Found",
                         });
                     }
@@ -116,6 +120,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                 let skipAmount = pageSize * (pageNum - 1);
                 let search = req.query.search || ".*";
                 let tags = req.query.tags || [];
+				tags = Array.isArray(tags) ? tags : [tags];
                 images
                     .find(
                         {
@@ -143,6 +148,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                     .then((result) => {
                         if (result == null) {
                             return res.status(HttpStatus.NOT_FOUND).json({
+								error: true,
                                 msg: "Error: Not Found",
                             });
                         }
@@ -154,6 +160,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                         return res
                             .status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .json({
+								error: true,
                                 msg: "Error: Internal Server Error - " + err,
                             });
                     });
@@ -184,6 +191,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                 if (err) {
                     if (err.code == 11000) {
                         return res.status(409).json({
+							error: true,
                             msg:
                                 "Error: Record Already Exists at id=" +
                                 req.body._id,
@@ -192,6 +200,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
 
                     console.error(err);
                     return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+						error: true,
                         msg: "Error: Internal Server Error - " + err,
                     });
                 }
@@ -211,7 +220,10 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                         console.error(err);
                         return res
                             .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .send(err);
+                            .json({
+								error: true,
+								msg: "Error: Internal Server Error - " + err,
+							});
                     }
 
                     return res.status(HttpStatus.OK).json({
@@ -228,12 +240,14 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                 if (err) {
                     console.error(err);
                     return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+						error: true,
                         msg: "Error Internal Server Error - " + err,
                     });
                 }
 
                 if (result.deletedCount == 0) {
                     return res.status(HttpStatus.NOT_FOUND).json({
+						error: true,
                         msg: "Error: Image not found",
                     });
                 }
@@ -252,6 +266,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                     if (err) {
                         if (err.code == "ENOENT") {
                             return res.status(HttpStatus.NOT_FOUND).json({
+								error: true,
                                 msg: "Error: Image not found",
                             });
                         }
@@ -260,6 +275,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                         return res
                             .status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .json({
+								error: true,
                                 msg: "Error: Internal Server Error - " + err,
                             });
                     }
@@ -329,6 +345,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                 })
                 .catch((err) => {
                     res.status(HttpStatus.NOT_FOUND).json({
+						error: true,
                         msg: "Error: Tags not found - " + err,
                     });
                 });
@@ -347,6 +364,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
             tags.insertOne(req.body, (err) => {
                 if (err) {
                     return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+						error: true,
                         msg: "Error: Internal Server Error - " + err,
                     });
                 }
