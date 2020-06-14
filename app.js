@@ -2,12 +2,12 @@ const express = require("express");
 const HttpStatus = require("http-status-codes");
 const morgan = require("morgan");
 const bodyParser = require("body-parser");
+const fileUpload = require("express-fileupload");
 const packageConfig = require("./package.json");
 const path = require("path");
 const fs = require("fs");
-const Busboy = require("busboy");
 const cors = require("cors");
-const uuid = require("uuid");
+const crypto = require("crypto");
 
 // Set up mongo
 const mongoUsername = process.env.MONGO_USERNAME;
@@ -17,6 +17,9 @@ const mongoPort = process.env.MONGO_PORT || 27017;
 const MongoClient = require("mongodb").MongoClient;
 const mongoURL = `mongodb://${mongoUsername}:${mongoPassword}@${mongoHost}:${mongoPort}/?authSource=image-database`;
 
+// Set up host
+const hostname = process.env.HOSTNAME || "localhost";
+
 const app = express();
 MongoClient.connect(mongoURL, { useUnifiedTopology: true })
     .then((client) => {
@@ -24,18 +27,61 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
         const db = client.db("image-database");
         const images = db.collection("images");
         const tags = db.collection("tags");
+        const users = db.collection("users");
 
         app.use(morgan("dev"));
         app.use("/api/files/images", express.static("images"));
         app.use(bodyParser.json());
         app.use(bodyParser.urlencoded({ extended: false }));
+        app.use(fileUpload());
         app.use(cors({ origin: true }));
 
+        /*
+         * A simple API Health Check
+         */
         app.get("/api", (req, res) => {
             return res.status(HttpStatus.OK).json({
                 msg: "OK",
                 service: "Image Database API Server",
             });
+        });
+
+        const uuidv4 = () => {
+            return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
+                // eslint-disable-next-line no-mixed-operators
+                (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+            );
+        }
+
+        // ---------------------- Authentication Operations ------------------------------
+        // Note: There will not be any signup functionality as I only need 1 user to be able
+        // to login, and so I won't need to be able to make a new user.
+
+        /*
+         * Checks if a user can login, and returns a session token for authencating 
+         * certain endpoints
+         * 
+         * Body: A JSON object with the user credentials
+         *  Example:
+         *  {
+         *      email: <email>,
+         *      password: <password>
+         *  }
+         * 
+         * @returns {json} an object with a token key, or an object describing an error
+         */
+        app.post("/api/auth/login", (req, res) => {
+            const { email, password } = req.body;
+            users.findOne({email}, (err, result) => {
+                if (err) {
+                    return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+                        error: true,
+                        msg: "Error: Internal Server Error - " + err,
+                    });
+                }
+
+
+            })
         });
 
         // ---------------------- Database Operations ------------------------------------
@@ -90,7 +136,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
          *  search => a query string for searching titles or descriptions
          *  tags => an array of tags to query
          *
-         * @return {JSON} sends a json array for many objects and just one object for a single id query
+         * @returns {json} sends a json array for many objects and just one object for a single id query
          */
         app.get("/api/image/db", (req, res) => {
             if (req.query.id) {
@@ -176,11 +222,11 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
          *  Example:
          *  {
          *      _id: <unique-id>,
-         *      createdAt: <timestamp>
-         *      description: <description of image>
-         *      filePath: <URL returned from /api/image/storage endpoint>
-         *      tags: <array of tag strings from tags collection>
-         *      title: <title of image>
+         *      createdAt: <timestamp>,
+         *      description: <description of image>,
+         *      filePath: <URL returned from /api/image/storage endpoint>,
+         *      tags: <array of tag strings from tags collection>,
+         *      title: <title of image>,
          *      updatedAt: <timestamp>
          *  }
          *
@@ -211,6 +257,23 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
             });
         });
 
+        /*
+         * Updates an image in the database
+         *
+         * Body: a document to be updated in the images collection.
+         *  Example:
+         *  {
+         *      _id: <unique-id of an existing image>,
+         *      createdAt: <timestamp>,
+         *      description: <description of image>,
+         *      filePath: <URL returned from /api/image/storage endpoint>,
+         *      tags: <array of tag strings from tags collection>,
+         *      title: <title of image>,
+         *      updatedAt: <timestamp>
+         *  }
+         *
+         * @returns {json} a message whether or not the operation was successful or not
+         */
         app.put("/api/image/db", (req, res) => {
             images.updateOne(
                 { _id: req.body["_id"] },
@@ -235,6 +298,17 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
             );
         });
 
+        /*
+         * Deletes an image in the database
+         *
+         * Body: a document to be deleted from the images collection.
+         *  Example:
+         *  {
+         *      _id: <unique-id>
+         *  }
+         *
+         * @returns {json} a message whether or not the operation was successful or not
+         */
         app.delete("/api/image/db", (req, res) => {
             images.deleteOne(req.body, (err, result) => {
                 if (err) {
@@ -259,6 +333,45 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
         });
 
         // ---------------------- Storage Operations ------------------------------------
+
+        app.post("/api/image/storage", (req, res) => {
+            if (!req.files || Object.keys(req.files).length === 0) {
+                return res.status(HttpStatus.BAD_REQUEST).json({
+                    error: true,
+                    msg: "Error: No files uploaded"
+                });
+            }
+
+            let image = req.files.image;
+            let filePath = `${hostname}/api/files/images/` + image.name;
+
+            // Move the image to the images folder in /images/filename
+            image.mv(path.join(__dirname, "images", image.name), (err) => {
+                if (err) {
+                    return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+                        error: true,
+                        msg: "Error: Internal Server Error - " + err
+                    });
+                }
+
+                return res.status(HttpStatus.OK).json({
+                    msg: "Successfully uploaded file - " + image.name,
+                    url: filePath
+                });
+            });
+        });
+
+        /*
+         * Deletes an image from storage
+         *
+         * Body: 
+         *  Example:
+         *  {
+         *      _id: <unique-id>
+         *  }
+         *
+         * @returns {json} a message whether or not the operation was successful or not
+         */
         app.delete("/api/image/storage", (req, res) => {
             fs.unlink(
                 path.join(__dirname, "images", path.basename(req.query.file)),
@@ -285,51 +398,6 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                     });
                 }
             );
-        });
-
-        app.post("/api/image/storage", (req, res) => {
-            let fileId = uuid.v1();
-            let filePath = "/api/images/" + fileId;
-            let busboy = new Busboy({
-                headers: req.headers,
-            });
-            busboy.on("file", function (_, file, filename) {
-                filePath += "." + filename.split(".")[1];
-                file.on("data", function (data) {
-                    process.stdout.write(
-                        "Uploading File [" +
-                            filename +
-                            "] got " +
-                            data.length +
-                            " bytes\r"
-                    );
-                });
-                file.on("end", function () {
-                    console.log("\nUploading File [" + filename + "] Finished");
-                });
-                let saveTo = path.join(
-                    __dirname,
-                    "images",
-                    path.basename(fileId + "." + filename.split(".")[1])
-                );
-                let outStream = fs.createWriteStream(saveTo);
-                console.log("Saved to: " + saveTo);
-                file.pipe(outStream);
-            });
-            busboy.on("finish", function () {
-                res.writeHead(HttpStatus.OK, {
-                    Connection: "close",
-                    "Content-Type": "application/json",
-                });
-                res.write(
-                    JSON.stringify({
-                        msg: "Successfully uploaded file",
-                        url: filePath,
-                    })
-                );
-                res.end();
-            });
-            return req.pipe(busboy);
         });
 
         // ---------------------- Tags Operations ------------------------------------

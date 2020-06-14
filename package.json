@@ -1,36 +1,37 @@
 {
-  "name": "image-database-backend",
-  "version": "1.0.0",
-  "description": "",
-  "main": "app.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "debug": "nodemon app.js"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/samfry13/image-database-backend.git"
-  },
-  "author": "Samuel Fry",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/samfry13/image-database-backend/issues"
-  },
-  "homepage": "https://github.com/samfry13/image-database-backend#readme",
-  "dependencies": {
-    "body-parser": "^1.19.0",
-    "busboy": "^0.3.1",
-    "cors": "^2.8.5",
-    "express": "^4.17.1",
-    "http-status-codes": "^1.4.0",
-    "mongodb": "^3.5.7",
-    "morgan": "^1.10.0",
-    "request": "^2.88.2",
-    "uuid": "^8.0.0"
-  },
-  "devDependencies": {
-    "eslint": "^7.1.0",
-    "nodemon": "^2.0.4",
-    "prettier": "^2.0.5"
-  }
+    "name": "image-database-backend",
+    "version": "1.0.0",
+    "description": "",
+    "main": "app.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "debug": "nodemon app.js"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/samfry13/image-database-backend.git"
+    },
+    "author": "Samuel Fry",
+    "license": "ISC",
+    "bugs": {
+        "url": "https://github.com/samfry13/image-database-backend/issues"
+    },
+    "homepage": "https://github.com/samfry13/image-database-backend#readme",
+    "dependencies": {
+        "body-parser": "^1.19.0",
+        "busboy": "^0.3.1",
+        "cors": "^2.8.5",
+        "express": "^4.17.1",
+        "express-fileupload": "^1.1.7-alpha.3",
+        "express-session": "^1.17.1",
+        "http-status-codes": "^1.4.0",
+        "mongodb": "^3.5.7",
+        "morgan": "^1.10.0",
+        "request": "^2.88.2"
+    },
+    "devDependencies": {
+        "eslint": "^7.1.0",
+        "nodemon": "^2.0.4",
+        "prettier": "^2.0.5"
+    }
 }
