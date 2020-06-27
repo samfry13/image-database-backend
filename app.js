@@ -7,7 +7,8 @@ const packageConfig = require("./package.json");
 const path = require("path");
 const fs = require("fs");
 const cors = require("cors");
-const crypto = require("crypto");
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
 
 // Set up mongo
 const mongoUsername = process.env.MONGO_USERNAME;
@@ -19,6 +20,8 @@ const mongoURL = `mongodb://${mongoUsername}:${mongoPassword}@${mongoHost}:${mon
 
 // Set up host
 const hostname = process.env.HOSTNAME || "localhost";
+
+const sessionSecret = process.env.SESSION_SECRET || "super secret";
 
 const app = express();
 MongoClient.connect(mongoURL, { useUnifiedTopology: true })
@@ -46,33 +49,56 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
             });
         });
 
-        const uuidv4 = () => {
-            return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
-                // eslint-disable-next-line no-mixed-operators
-                (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
-            );
-        }
-
         // ---------------------- Authentication Operations ------------------------------
         // Note: There will not be any signup functionality as I only need 1 user to be able
         // to login, and so I won't need to be able to make a new user.
 
         /*
-         * Checks if a user can login, and returns a session token for authencating 
+         * Authentication middleware for verifying and decrypting jwt tokens. Calls
+         * next() when done
+         *
+         * Header: Token - A JWT token signed from this server
+         *
+         * @returns {json} an error if it exists. Otherwise nothing.
+         */
+        const auth = (req, res, next) => {
+            const token = req.header("token");
+            if (!token) {
+                return res.status(HttpStatus.UNAUTHORIZED).json({
+                    error: true,
+                    msg: "Error: Authentication Error",
+                });
+            }
+
+            try {
+                const decoded = jwt.verify(token, sessionSecret);
+                req.user = decoded.user;
+                next();
+            } catch (err) {
+                res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+                    error: true,
+                    msg: "Error: Internal Server Error - " + err,
+                });
+            }
+        };
+
+        /*
+         * Checks if a user can login, and returns a session token for authencating
          * certain endpoints
-         * 
+         *
          * Body: A JSON object with the user credentials
          *  Example:
          *  {
          *      email: <email>,
          *      password: <password>
          *  }
-         * 
+         *
          * @returns {json} an object with a token key, or an object describing an error
          */
         app.post("/api/auth/login", (req, res) => {
             const { email, password } = req.body;
-            users.findOne({email}, (err, result) => {
+            console.log(email, password);
+            users.findOne({ email }, (err, result) => {
                 if (err) {
                     return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
                         error: true,
@@ -80,8 +106,72 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                     });
                 }
 
+                if (result === null) {
+                    return res.status(HttpStatus.NOT_FOUND).json({
+                        error: true,
+                        msg: "Error: User Not Found",
+                    });
+                }
 
-            })
+                bcrypt.compare(password, result.passwordHash, (err, match) => {
+                    if (err) {
+                        return res
+                            .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .json({
+                                error: true,
+                                msg: "Error: Internal Server Error - " + err,
+                            });
+                    }
+
+                    if (match) {
+                        jwt.sign(
+                            {
+                                user: {
+                                    email: result.email,
+                                    name: result.name,
+                                },
+                            },
+                            sessionSecret,
+                            { expiresIn: 10000 },
+                            (err, token) => {
+                                if (err) {
+                                    return res
+                                        .status(
+                                            HttpStatus.INTERNAL_SERVER_ERROR
+                                        )
+                                        .json({
+                                            error: true,
+                                            msg:
+                                                "Error: Internal Server Error - " +
+                                                err,
+                                        });
+                                }
+
+                                return res.status(HttpStatus.OK).json({
+                                    msg: "Successfully logged in",
+                                    token,
+                                    user: {
+                                        email: result.email,
+                                        name: result.name,
+                                    },
+                                });
+                            }
+                        );
+                    } else {
+                        return res.status(HttpStatus.UNAUTHORIZED).json({
+                            error: true,
+                            msg: "Error: Credentials are incorrect",
+                        });
+                    }
+                });
+            });
+        });
+
+        app.get("/api/auth/session", auth, (req, res) => {
+            res.status(HttpStatus.OK).json({
+                msg: "Valid Session",
+                user: req.user,
+            });
         });
 
         // ---------------------- Database Operations ------------------------------------
@@ -97,7 +187,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
         app.get("/api/image/db/pages", (req, res) => {
             let search = req.query.search || ".*";
             let tags = req.query.tags || [];
-			tags = Array.isArray(tags) ? tags : [tags];
+            tags = Array.isArray(tags) ? tags : [tags];
             images.countDocuments(
                 {
                     tags: tags.length ? { $all: tags } : { $in: [/.*/] },
@@ -111,7 +201,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                         return res
                             .status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .json({
-								error: true,
+                                error: true,
                                 msg: "Error: Internal Server Error - " + err,
                             });
                     }
@@ -146,14 +236,14 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                         return res
                             .status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .json({
-								error: true,
+                                error: true,
                                 msg: "Error: Internal Server Error - " + err,
                             });
                     }
 
                     if (result == null) {
                         return res.status(HttpStatus.NOT_FOUND).json({
-							error: true,
+                            error: true,
                             msg: "Error: Not Found",
                         });
                     }
@@ -166,7 +256,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                 let skipAmount = pageSize * (pageNum - 1);
                 let search = req.query.search || ".*";
                 let tags = req.query.tags || [];
-				tags = Array.isArray(tags) ? tags : [tags];
+                tags = Array.isArray(tags) ? tags : [tags];
                 images
                     .find(
                         {
@@ -194,7 +284,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                     .then((result) => {
                         if (result == null) {
                             return res.status(HttpStatus.NOT_FOUND).json({
-								error: true,
+                                error: true,
                                 msg: "Error: Not Found",
                             });
                         }
@@ -206,7 +296,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                         return res
                             .status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .json({
-								error: true,
+                                error: true,
                                 msg: "Error: Internal Server Error - " + err,
                             });
                     });
@@ -232,12 +322,12 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
          *
          * @returns {json} a message whether or not the operation was successful or not
          */
-        app.post("/api/image/db", (req, res) => {
+        app.post("/api/image/db", auth, (req, res) => {
             images.insertOne(req.body, (err, result) => {
                 if (err) {
                     if (err.code == 11000) {
                         return res.status(409).json({
-							error: true,
+                            error: true,
                             msg:
                                 "Error: Record Already Exists at id=" +
                                 req.body._id,
@@ -246,7 +336,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
 
                     console.error(err);
                     return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
-						error: true,
+                        error: true,
                         msg: "Error: Internal Server Error - " + err,
                     });
                 }
@@ -274,7 +364,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
          *
          * @returns {json} a message whether or not the operation was successful or not
          */
-        app.put("/api/image/db", (req, res) => {
+        app.put("/api/image/db", auth, (req, res) => {
             images.updateOne(
                 { _id: req.body["_id"] },
                 req.body,
@@ -284,9 +374,9 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                         return res
                             .status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .json({
-								error: true,
-								msg: "Error: Internal Server Error - " + err,
-							});
+                                error: true,
+                                msg: "Error: Internal Server Error - " + err,
+                            });
                     }
 
                     return res.status(HttpStatus.OK).json({
@@ -309,19 +399,19 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
          *
          * @returns {json} a message whether or not the operation was successful or not
          */
-        app.delete("/api/image/db", (req, res) => {
+        app.delete("/api/image/db", auth, (req, res) => {
             images.deleteOne(req.body, (err, result) => {
                 if (err) {
                     console.error(err);
                     return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
-						error: true,
+                        error: true,
                         msg: "Error Internal Server Error - " + err,
                     });
                 }
 
                 if (result.deletedCount == 0) {
                     return res.status(HttpStatus.NOT_FOUND).json({
-						error: true,
+                        error: true,
                         msg: "Error: Image not found",
                     });
                 }
@@ -334,11 +424,11 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
 
         // ---------------------- Storage Operations ------------------------------------
 
-        app.post("/api/image/storage", (req, res) => {
+        app.post("/api/image/storage", auth, (req, res) => {
             if (!req.files || Object.keys(req.files).length === 0) {
                 return res.status(HttpStatus.BAD_REQUEST).json({
                     error: true,
-                    msg: "Error: No files uploaded"
+                    msg: "Error: No files uploaded",
                 });
             }
 
@@ -350,13 +440,13 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                 if (err) {
                     return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
                         error: true,
-                        msg: "Error: Internal Server Error - " + err
+                        msg: "Error: Internal Server Error - " + err,
                     });
                 }
 
                 return res.status(HttpStatus.OK).json({
                     msg: "Successfully uploaded file - " + image.name,
-                    url: filePath
+                    url: filePath,
                 });
             });
         });
@@ -364,7 +454,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
         /*
          * Deletes an image from storage
          *
-         * Body: 
+         * Body:
          *  Example:
          *  {
          *      _id: <unique-id>
@@ -372,14 +462,14 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
          *
          * @returns {json} a message whether or not the operation was successful or not
          */
-        app.delete("/api/image/storage", (req, res) => {
+        app.delete("/api/image/storage", auth, (req, res) => {
             fs.unlink(
                 path.join(__dirname, "images", path.basename(req.query.file)),
                 (err) => {
                     if (err) {
                         if (err.code == "ENOENT") {
                             return res.status(HttpStatus.NOT_FOUND).json({
-								error: true,
+                                error: true,
                                 msg: "Error: Image not found",
                             });
                         }
@@ -388,7 +478,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                         return res
                             .status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .json({
-								error: true,
+                                error: true,
                                 msg: "Error: Internal Server Error - " + err,
                             });
                     }
@@ -404,6 +494,8 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
 
         /*
          * Gets all of the tags from the tags collection
+         *
+         * @returns {json} a list of all of the tag documents
          */
         app.get("/api/tags", (_, res) => {
             tags.find()
@@ -413,7 +505,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                 })
                 .catch((err) => {
                     res.status(HttpStatus.NOT_FOUND).json({
-						error: true,
+                        error: true,
                         msg: "Error: Tags not found - " + err,
                     });
                 });
@@ -427,12 +519,14 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
          *  {
          *      tag: <tag name>
          *  }
+         *
+         * @returns {json} a success or error message
          */
-        app.post("/api/tags", (req, res) => {
+        app.post("/api/tags", auth, (req, res) => {
             tags.insertOne(req.body, (err) => {
                 if (err) {
                     return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
-						error: true,
+                        error: true,
                         msg: "Error: Internal Server Error - " + err,
                     });
                 }
@@ -441,6 +535,32 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                     msg: "Successfully inserted tag " + req.body.tag,
                 });
             });
+        });
+
+        /*
+         * Removes a tag from the tags collection, and removes it from any images
+         *
+         * Body: a tag document, with out an _id field.
+         *  Example:
+         *  {
+         *      tag: <tag name>
+         *  }
+         *
+         * @returns {json} a success or error message
+         */
+        app.delete("/api/tags", auth, (req, res) => {
+            //tags.deleteOne(req.body, (err) => {
+            //    if (err) {
+            //        return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+            //           error: true,
+            //            msg: "Error: Internal Server Error - " + err,
+            //        });
+            //    }
+            //
+            //
+            //})
+            //TODO: delete the tag from all of the images
+            return res.status(200).end();
         });
 
         // ---------------------- Start Server ------------------------------------
