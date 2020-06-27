@@ -57,7 +57,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
          * Authentication middleware for verifying and decrypting jwt tokens. Calls
          * next() when done
          *
-         * Header: Token - A JWT token signed from this server
+         * Header: token - A JWT token signed from this server
          *
          * @returns {json} an error if it exists. Otherwise nothing.
          */
@@ -132,7 +132,7 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
                                 },
                             },
                             sessionSecret,
-                            { expiresIn: 10000 },
+                            { expiresIn: "7 days" },
                             (err, token) => {
                                 if (err) {
                                     return res
@@ -167,11 +167,31 @@ MongoClient.connect(mongoURL, { useUnifiedTopology: true })
             });
         });
 
+        /*
+         * Verifies a session and issues a new JWT token
+         */
         app.get("/api/auth/session", auth, (req, res) => {
-            res.status(HttpStatus.OK).json({
-                msg: "Valid Session",
-                user: req.user,
-            });
+            jwt.sign(
+                { user: req.user },
+                sessionSecret,
+                { expiresIn: "7 days" },
+                (err, token) => {
+                    if (err) {
+                        return res
+                            .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .json({
+                                error: true,
+                                msg: "Error: Internal Server Error - " + err,
+                            });
+                    }
+
+                    return res.status(HttpStatus.OK).json({
+                        msg: "Valid Session",
+                        token,
+                        user: req.user,
+                    });
+                }
+            );
         });
 
         // ---------------------- Database Operations ------------------------------------
